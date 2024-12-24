@@ -1,4 +1,5 @@
 rootProject.name = 'ppd-p1-client-server'
 include 'client'
 include 'server'
+include 'common'
 

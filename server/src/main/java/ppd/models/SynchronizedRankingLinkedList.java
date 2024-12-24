@@ -16,7 +16,6 @@ public class SynchronizedRankingLinkedList {
 
     private final Set<Integer> blacklist = new HashSet<>();
     private final Lock blacklistLock = new ReentrantLock();
-    private final Lock listLock = new ReentrantLock();
 
     public SynchronizedRankingLinkedList() {
         head.setNext(tail);
@@ -32,49 +31,65 @@ public class SynchronizedRankingLinkedList {
             return;
         }
 
-        listLock.lock();
+        head.lock();
+        head.getNext().lock();
+        var prev = head;
+        var current = head.getNext();
+
         try {
-            var current = head.getNext();
-            var prev = head;
             while (current != tail) {
                 if (current.getId() == id) {
                     current.setScore(current.getScore() + points);
                     return;
                 }
+                prev.unlock();
                 prev = current;
                 current = current.getNext();
+                current.lock();
+            }
+
+            if (isBlacklisted(id)) {
+                return;
             }
 
             var newNode = new ScoreRecord(id, country, points);
             newNode.setNext(current);
             prev.setNext(newNode);
         } finally {
-            listLock.unlock();
+            prev.unlock();
+            current.unlock();
         }
     }
 
     private void removeAndBlacklist(int id) {
-        listLock.lock();
+        var removed = false;
+
+        head.lock();
+        head.getNext().lock();
+        var prev = head;
+        var current = head.getNext();
 
         try {
-            var removed = false;
-            var current = head.getNext();
-            var prev = head;
-
             while (current != tail && !removed) {
-                if (current.getId() == id) {
-                    prev.setNext(current.getNext());
-                    removed = true;
+                try {
+                    if (current.getId() == id) {
+                        prev.setNext(current.getNext());
+                        removed = true;
+                    }
+                } finally {
+                    prev.unlock();
+                    prev = current;
+                    current = current.getNext();
+                    current.lock();
                 }
-                prev = current;
-                current = current.getNext();
             }
 
             if (!removed && !isBlacklisted(id)) {
                 addToBlacklist(id);
             }
         } finally {
-            listLock.unlock();
+            prev.unlock();
+            current.unlock();
         }
     }
 
@@ -98,24 +113,28 @@ public class SynchronizedRankingLinkedList {
 
     public List<ScoreRecord> getRanking() {
         List<ScoreRecord> list = new LinkedList<>();
-        var current = head.getNext();
 
-        listLock.lock();
+        var current = head.getNext();
+        current.lock();
         try {
             while (current != tail) {
-                list.add(current);
-                current = current.getNext();
+                list.add(new ScoreRecord(current.getId(), current.getCountry(), current.getScore()));
+                var next = current.getNext();
+                next.lock();
+                current.unlock();
+                current = next;
             }
-            list.sort((a, b) -> {
-                if (b.getScore() != a.getScore()) {
-                    return Integer.compare(b.getScore(), a.getScore());
-                } else {
-                    return Integer.compare(b.getId(), a.getId());
-                }
-            });
-            return list;
         } finally {
-            listLock.unlock();
+            current.unlock();
         }
+
+        list.sort((a, b) -> {
+            if (b.getScore() != a.getScore()) {
+                return Integer.compare(b.getScore(), a.getScore());
+            } else {
+                return Integer.compare(b.getId(), a.getId());
+            }
+        });
+        return list;
     }
 }
