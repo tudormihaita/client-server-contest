@@ -1,11 +1,10 @@
 package ppd.models;
 
 import lombok.Getter;
+import ppd.response.CountryScore;
+import ppd.response.ParticipantScore;
 
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -111,14 +110,14 @@ public class SynchronizedRankingLinkedList {
         }
     }
 
-    public List<ScoreRecord> getRanking() {
-        List<ScoreRecord> list = new LinkedList<>();
+    public List<ParticipantScore> getParticipantRanking() {
+        List<ParticipantScore> list = new LinkedList<>();
 
         var current = head.getNext();
         current.lock();
         try {
             while (current != tail) {
-                list.add(new ScoreRecord(current.getId(), current.getCountry(), current.getScore()));
+                list.add(new ParticipantScore(current.getId(), current.getCountry(), current.getScore()));
                 var next = current.getNext();
                 next.lock();
                 current.unlock();
@@ -129,10 +128,42 @@ public class SynchronizedRankingLinkedList {
         }
 
         list.sort((a, b) -> {
-            if (b.getScore() != a.getScore()) {
-                return Integer.compare(b.getScore(), a.getScore());
+            if (b.score() != a.score()) {
+                return Integer.compare(b.score(), a.score());
             } else {
-                return Integer.compare(b.getId(), a.getId());
+                return Integer.compare(b.id(), a.id());
+            }
+        });
+        return list;
+    }
+
+    public List<CountryScore> getCountryRanking() {
+        List<CountryScore> list = new LinkedList<>();
+        Map<Integer, Integer> countryScores = new HashMap<>();
+
+        var current = head.getNext();
+        current.lock();
+        try {
+            while (current != tail) {
+                var country = current.getCountry();
+                var score = current.getScore();
+                countryScores.merge(country, score, Integer::sum);
+
+                var next = current.getNext();
+                next.lock();
+                current.unlock();
+                current = next;
+            }
+        } finally {
+            current.unlock();
+        }
+
+        countryScores.forEach((country, score) -> list.add(new CountryScore(country, score)));
+        list.sort((a, b) -> {
+            if (b.totalScore() != a.totalScore()) {
+                return Integer.compare(b.totalScore(), a.totalScore());
+            } else {
+                return Integer.compare(b.country(), a.country());
             }
         });
         return list;

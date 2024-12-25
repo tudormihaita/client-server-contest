@@ -12,16 +12,16 @@ public class CountryMapper {
     }
 
     private static void initializeMappings() {
-        countryMap.put(0, "Portugal");
-        countryMap.put(1, "Spain");
-        countryMap.put(2, "France");
-        countryMap.put(3, "Germany");
-        countryMap.put(4, "Italy");
-        countryMap.put(5, "United Kingdom");
-        countryMap.put(6, "Poland");
-        countryMap.put(7, "Netherlands");
-        countryMap.put(8, "Belgium");
-        countryMap.put(9, "Romania");
+        countryMap.put(1, "Portugal");
+        countryMap.put(2, "Spain");
+        countryMap.put(3, "France");
+        countryMap.put(4, "Germany");
+        countryMap.put(5, "Italy");
+        countryMap.put(6, "United Kingdom");
+        countryMap.put(7, "Poland");
+        countryMap.put(8, "Netherlands");
+        countryMap.put(9, "Belgium");
+        countryMap.put(10, "Romania");
     }
 
     public static String getCountryName(int countryId) {

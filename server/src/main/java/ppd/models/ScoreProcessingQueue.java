@@ -9,7 +9,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class ScoreProcessingQueue {
     private final int capacity;
-    private final AtomicInteger readersLeft;
+    private final AtomicInteger countriesLeft;
     private final ScoreRecord NULL_RECORD = new ScoreRecord(-1, -1, -1);
 
     private final Lock queueLock = new ReentrantLock();
@@ -18,16 +18,16 @@ public class ScoreProcessingQueue {
 
     private final Queue<ScoreRecord> queue = new LinkedList<>();
 
-    public ScoreProcessingQueue(int capacity, AtomicInteger readers) {
+    public ScoreProcessingQueue(int capacity, AtomicInteger countries) {
         this.capacity = capacity;
-        this.readersLeft = readers;
+        this.countriesLeft = countries;
     }
 
     public void enqueue(int id, int country, int points) throws InterruptedException {
         var record = new ScoreRecord(id, country, points);
         queueLock.lock();
         try {
-            while (queue.size() == capacity && readersLeft.get() > 0) {
+            while (queue.size() == capacity && countriesLeft.get() > 0) {
                 notFull.await();
             }
 
@@ -41,11 +41,11 @@ public class ScoreProcessingQueue {
     public ScoreRecord dequeue() throws InterruptedException {
         queueLock.lock();
         try {
-            while (queue.isEmpty() && readersLeft.get() > 0) {
+            while (queue.isEmpty() && countriesLeft.get() > 0) {
                 notEmpty.await();
             }
 
-            if (queue.isEmpty() && readersLeft.get() == 0) {
+            if (queue.isEmpty() && countriesLeft.get() == 0) {
                 return NULL_RECORD;
             }
 

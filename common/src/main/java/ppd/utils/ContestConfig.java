@@ -5,7 +5,7 @@ public record ContestConfig() {
     public static final String SERVER_DATA_DIR = HOME_DIR + "/server/src/main/java/ppd/data";
     public static final String CLIENT_DATA_DIR = HOME_DIR + "/client/src/main/java/ppd/data";
 
-    public static final int COUNTRIES = 10;
+    public static final int COUNTRIES = 5;
     public static final int PROBLEMS = 10;
     public static final int MIN_PARTICIPANTS = 80;
     public static final int MAX_PARTICIPANTS = 100;
@@ -19,4 +19,7 @@ public record ContestConfig() {
     public static final int DELTA_X = 1;
     public static final int DELTA_T = 1;
     public static final int CHUNK_SIZE = 20;
+
+    public static final int MAX_RETRIES = 5;
+    public static final int RETRY_DELAY = 5000;
 }
