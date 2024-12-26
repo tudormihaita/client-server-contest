@@ -147,7 +147,7 @@ public class ContestClient {
                 break;
             }
             retries++;
-            Thread.sleep(RETRY_DELAY);
+            Thread.sleep(1000 * RETRY_DELAY);
         } while (retries < MAX_RETRIES);
 
         return response;

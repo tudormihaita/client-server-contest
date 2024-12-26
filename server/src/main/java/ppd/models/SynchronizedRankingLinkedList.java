@@ -83,7 +83,7 @@ public class SynchronizedRankingLinkedList {
                 }
             }
 
-            if (!removed && !isBlacklisted(id)) {
+            if (!removed || !isBlacklisted(id)) {
                 addToBlacklist(id);
             }
         } finally {

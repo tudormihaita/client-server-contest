@@ -11,19 +11,22 @@ import ppd.response.ParticipantScore;
 
 import java.io.*;
 import java.net.ServerSocket;
+import java.net.SocketTimeoutException;
 import java.util.*;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static ppd.utils.ContestConfig.*;
 
 public class ContestServer {
     private static final AtomicInteger countriesLeft = new AtomicInteger(COUNTRIES);
-    private static final AtomicInteger clientsConnectionsLeft = new AtomicInteger(COUNTRIES);
+    private static final AtomicInteger clientConnectionsLeft = new AtomicInteger(COUNTRIES);
     private static final ExecutorService executor = Executors.newFixedThreadPool(READERS);
 
-    private static final List<Integer> finishedCountries = new ArrayList<>();
+    private static final Set<Integer> finishedCountries = new ConcurrentSkipListSet<>();
     private static final ScoreProcessingQueue queue = new ScoreProcessingQueue(MAX_QUEUE_CAPACITY, countriesLeft);
     private static final SynchronizedRankingLinkedList rankingList = new SynchronizedRankingLinkedList();
 
@@ -39,12 +42,22 @@ public class ContestServer {
 
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             log.info("Server started on port: {}, waiting for clients...", PORT);
-            while (clientsConnectionsLeft.get() > 0) {
+            // Alternative to shutting down the server socket prematurely: setting an accept timeout to re-check loop break condition
+//           serverSocket.setSoTimeout(1000 * SERVER_TIMEOUT);
+            while (true) {
+                log.info("Waiting for client connection...");
+                if (clientConnectionsLeft.get() == 0) {
+                    log.info("All clients have connected, waiting for workers to finish...");
+                    break;
+                }
+
                 try {
                     final var clientSocket = serverSocket.accept();
                     log.info("Client connected, starting reader to process request...");
-                    executor.submit(new ContestReader(clientSocket, executor, queue, rankingList,
-                            countriesLeft, clientsConnectionsLeft, finishedCountries));
+                    executor.submit(new ContestReader(clientSocket, serverSocket, executor, queue, rankingList,
+                            countriesLeft, clientConnectionsLeft, finishedCountries));
+                } catch (SocketTimeoutException e) {
+                    log.debug("Socket timeout, waiting for new connections...");
                 } catch (IOException e) {
                     log.error(e);
                 }
@@ -53,6 +66,8 @@ public class ContestServer {
             log.error(e);
         }
 
+        log.info("Cleaning up worker threads...");
+        queue.close();
         Arrays.stream(workerThreads).forEach(worker -> {
             try {
                 worker.join();
@@ -62,6 +77,14 @@ public class ContestServer {
             }
         });
         executor.shutdown();
+        try {
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
 
         var participantRankingPath = SERVER_DATA_DIR + "/participant_ranking_parallel.txt";
         var countryRankingPath = SERVER_DATA_DIR + "/country_ranking_parallel.txt";

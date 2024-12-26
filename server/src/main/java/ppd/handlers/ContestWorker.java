@@ -24,7 +24,7 @@ public class ContestWorker extends Thread {
         try {
             while (true) {
                 var record = queue.dequeue();
-                if (record == NULL_RECORD) {
+                if (record.equals(NULL_RECORD)) {
                     log.info("No more records to process, worker {} finished", Thread.currentThread().getName());
                     break;
                 }

@@ -1,5 +1,5 @@
 plugins {
-    id 'java'
+    id 'application'
 }
 
 group = 'ppd'
@@ -7,6 +7,10 @@ version = '1.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
+}
+
+application {
+    mainClass = 'ppd.ContestClient'
 }
 
 dependencies {
@@ -21,3 +25,21 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
+//tasks.register('runClients') {
+//    doLast {
+//        (1..5).each { id ->
+//            // Create a new JavaExec task for each client
+//            JavaExec javaExec = tasks.create("runClient$id", JavaExec) {
+//                main = 'ppd.ContestClient'
+//                classpath = sourceSets.main.runtimeClasspath
+//                args [id.toString()] // Pass the client id as argument
+//            }
+//
+//            // Run each client in parallel by starting a new thread
+//            Thread.start {
+//                javaExec.exec()  // Execute the task
+//            }
+//        }
+//    }
+//}

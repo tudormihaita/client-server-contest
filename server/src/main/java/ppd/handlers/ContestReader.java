@@ -15,8 +15,10 @@ import ppd.response.ResponseType;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -28,27 +30,29 @@ import static ppd.utils.ContestConfig.DELTA_T;
 @AllArgsConstructor
 public class ContestReader implements Runnable {
     private final Socket clientSocket;
+    private final ServerSocket serverSocket;
     private final ExecutorService executor;
     private final ScoreProcessingQueue queue;
     private final SynchronizedRankingLinkedList rankingList;
 
     private final AtomicInteger countriesLeft;
-    private final AtomicInteger clientsConnectionsLeft;
-    private final List<Integer> finishedCountries;
+    private final AtomicInteger clientConnectionsLeft;
+    private final Set<Integer> finishedCountries;
 
     private static final Logger log = LogManager.getLogger(ContestReader.class);
 
     private volatile List<CountryScore> cachedPartialRanking = null;
     private volatile long lastComputedTime = 0L;
 
-    public ContestReader(Socket clientSocket, ExecutorService executor, ScoreProcessingQueue queue, SynchronizedRankingLinkedList rankingList,
-                         AtomicInteger countriesLeft, AtomicInteger clientsConnectionsLeft, List<Integer> finishedCountries) {
+    public ContestReader(Socket clientSocket, ServerSocket serverSocket, ExecutorService executor, ScoreProcessingQueue queue, SynchronizedRankingLinkedList rankingList,
+                         AtomicInteger countriesLeft, AtomicInteger clientConnectionsLeft, Set<Integer> finishedCountries) {
         this.clientSocket = clientSocket;
+        this.serverSocket = serverSocket;
         this.executor = executor;
         this.queue = queue;
         this.rankingList = rankingList;
         this.countriesLeft = countriesLeft;
-        this.clientsConnectionsLeft = clientsConnectionsLeft;
+        this.clientConnectionsLeft = clientConnectionsLeft;
         this.finishedCountries = finishedCountries;
     }
 
@@ -61,13 +65,12 @@ public class ContestReader implements Runnable {
             var request = (Request) in.readObject();
             log.info("Received request: {}", request);
             handleRequest(request, out);
-
         } catch (IOException | ClassNotFoundException e) {
             log.error(e);
         }
     }
 
-    private void handleRequest(Request request, ObjectOutputStream out) {
+    private void handleRequest(Request request, ObjectOutputStream out) throws IOException {
         switch (request.getType()) {
             case SCORE_SUBMISSION -> {
                 log.info("Received score submission request: {}", request);
@@ -83,6 +86,7 @@ public class ContestReader implements Runnable {
             }
             default -> log.error("Invalid request type: {}", request.getType());
         }
+        clientSocket.close();
     }
 
     @SneakyThrows
@@ -123,7 +127,7 @@ public class ContestReader implements Runnable {
     private void processPartialCountryRanking(Request request, ObjectOutputStream out) {
         try {
             long currentTime = System.currentTimeMillis();
-            if (cachedPartialRanking != null && (currentTime - lastComputedTime) <= DELTA_T) {
+            if (cachedPartialRanking != null && (currentTime - lastComputedTime) <= DELTA_T * 1000) {
                 log.info("Sending cached partial country ranking...");
                 var response = Response.builder()
                         .type(ResponseType.SUCCESS)
@@ -132,30 +136,27 @@ public class ContestReader implements Runnable {
 
                 out.writeObject(response);
                 out.flush();
-                return;
+            } else {
+
+                log.info("Computing partial country ranking...");
+                Future<List<CountryScore>> rankingComputation = executor.submit(rankingList::getCountryRanking);
+                var partialRanking = rankingComputation.get();
+                cachedPartialRanking = partialRanking;
+                lastComputedTime = currentTime;
+
+                var response = Response.builder()
+                        .type(ResponseType.SUCCESS)
+                        .countryRanking(partialRanking)
+                        .build();
+
+                out.writeObject(response);
+                out.flush();
             }
-
-            log.info("Computing partial country ranking...");
-            Future<List<CountryScore>> rankingComputation = executor.submit(rankingList::getCountryRanking);
-            var partialRanking = rankingComputation.get();
-            cachedPartialRanking = partialRanking;
-            lastComputedTime = currentTime;
-
-            var response = Response.builder()
-                    .type(ResponseType.SUCCESS)
-                    .countryRanking(partialRanking)
-                    .build();
-
-            out.writeObject(response);
-            out.flush();
+            log.info("Partial country ranking sent to client: {}", request.getCountry());
 
             if (!finishedCountries.contains(request.getCountry())) {
                 finishedCountries.add(request.getCountry());
                 countriesLeft.decrementAndGet();
-            }
-
-            if (countriesLeft.get() == 0) {
-                queue.close();
             }
         } catch (IOException | ExecutionException | InterruptedException e) {
             log.error(e);
@@ -184,9 +185,16 @@ public class ContestReader implements Runnable {
 
             out.writeObject(response);
             out.flush();
+            log.info("Final participant ranking sent to client: {}", request.getCountry());
 
             if (finishedCountries.contains(request.getCountry())) {
-                clientsConnectionsLeft.decrementAndGet();
+                log.info("Client {} finished", request.getCountry());
+                clientConnectionsLeft.decrementAndGet();
+                log.info("Clients left: {}", clientConnectionsLeft.get());
+            }
+
+            if (clientConnectionsLeft.get() == 0) {
+                serverSocket.close();
             }
         } catch (IOException | ExecutionException | InterruptedException e) {
             log.error(e);

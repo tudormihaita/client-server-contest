@@ -20,6 +20,7 @@ public record ContestConfig() {
     public static final int DELTA_T = 1;
     public static final int CHUNK_SIZE = 20;
 
+    public static final int SERVER_TIMEOUT = 2;
     public static final int MAX_RETRIES = 5;
-    public static final int RETRY_DELAY = 5000;
+    public static final int RETRY_DELAY = 10;
 }
