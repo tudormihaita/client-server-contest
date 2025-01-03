@@ -2,8 +2,8 @@ package ppd;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import ppd.handlers.ContestReader;
 import ppd.handlers.ContestWorker;
+import ppd.handlers.RankingWriter;
 import ppd.models.ScoreProcessingQueue;
 import ppd.models.SynchronizedRankingLinkedList;
 import ppd.response.CountryScore;
@@ -13,49 +13,57 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
 import java.util.*;
-import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static ppd.utils.ContestConfig.*;
 
 public class ContestServer {
     private static final AtomicInteger countriesLeft = new AtomicInteger(COUNTRIES);
-    private static final AtomicInteger clientConnectionsLeft = new AtomicInteger(COUNTRIES);
-    private static final ExecutorService executor = Executors.newFixedThreadPool(READERS);
-
+    private static final AtomicInteger remainingClients = new AtomicInteger(COUNTRIES);
+    private static final CountDownLatch finalRankingReadyLatch = new CountDownLatch(COUNTRIES);
     private static final Set<Integer> finishedCountries = new ConcurrentSkipListSet<>();
+
+    private static final ExecutorService readerExecutor = Executors.newFixedThreadPool(READERS);
+    private static final ExecutorService rankingExecutor = Executors.newSingleThreadExecutor();
+
     private static final ScoreProcessingQueue queue = new ScoreProcessingQueue(MAX_QUEUE_CAPACITY, countriesLeft);
     private static final SynchronizedRankingLinkedList rankingList = new SynchronizedRankingLinkedList();
 
     protected static final Logger log = LogManager.getLogger(ContestServer.class);
 
     public static void main(String[] args) {
-        var workerThreads = new Thread[WORKERS];
-        for (int i = 0; i < WORKERS; i++) {
-            var worker = new ContestWorker(queue, rankingList);
-            workerThreads[i] = worker;
+        var workerThreads = new ArrayList<Thread>();
+        var writerThreads = new Thread[WRITERS];
+
+        for (int i = 0; i < WRITERS; i++) {
+            var worker = new RankingWriter(queue, rankingList);
+            writerThreads[i] = worker;
         }
-        Arrays.stream(workerThreads).forEach(Thread::start);
+        Arrays.stream(writerThreads).forEach(Thread::start);
 
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             log.info("Server started on port: {}, waiting for clients...", PORT);
             // Alternative to shutting down the server socket prematurely: setting an accept timeout to re-check loop break condition
-//           serverSocket.setSoTimeout(1000 * SERVER_TIMEOUT);
+            // serverSocket.setSoTimeout(1000 * SERVER_TIMEOUT);
+
             while (true) {
                 log.info("Waiting for client connection...");
-                if (clientConnectionsLeft.get() == 0) {
-                    log.info("All clients have connected, waiting for workers to finish...");
+
+                if (remainingClients.get() == 0) {
+                    log.info("All clients have connected, shutting down socket and waiting for workers to finish...");
                     break;
                 }
 
                 try {
                     final var clientSocket = serverSocket.accept();
                     log.info("Client connected, starting reader to process request...");
-                    executor.submit(new ContestReader(clientSocket, serverSocket, executor, queue, rankingList,
-                            countriesLeft, clientConnectionsLeft, finishedCountries));
+                    var worker = new ContestWorker(
+                            clientSocket, serverSocket, readerExecutor, rankingExecutor,
+                            remainingClients, countriesLeft, finishedCountries,
+                            finalRankingReadyLatch, queue, rankingList);
+                    workerThreads.add(worker);
+                    worker.start();
                 } catch (SocketTimeoutException e) {
                     log.debug("Socket timeout, waiting for new connections...");
                 } catch (IOException e) {
@@ -66,23 +74,43 @@ public class ContestServer {
             log.error(e);
         }
 
-        log.info("Cleaning up worker threads...");
+        log.info("Cleaning up threads...");
         queue.close();
-        Arrays.stream(workerThreads).forEach(worker -> {
+
+        workerThreads.forEach(worker -> {
             try {
                 worker.join();
-                log.info("Worker {} finished", worker.getName());
             } catch (InterruptedException e) {
                 log.error(e);
             }
         });
-        executor.shutdown();
+
+        Arrays.stream(writerThreads).forEach(writer -> {
+            try {
+                writer.join();
+                log.info("Writer {} finished", writer.getName());
+            } catch (InterruptedException e) {
+                log.error(e);
+            }
+        });
+
+        readerExecutor.shutdown();
         try {
-            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
+            if (!readerExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                readerExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {
-            executor.shutdownNow();
+            readerExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        rankingExecutor.shutdown();
+        try {
+            if (!rankingExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                rankingExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            rankingExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
 
