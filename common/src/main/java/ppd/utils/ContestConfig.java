@@ -16,8 +16,8 @@ public record ContestConfig() {
     public static final int PORT = 5555;
     public static final int READERS = 4;
     public static final int WRITERS = 8;
-    public static final int DELTA_X = 1;
-    public static final int DELTA_T = 1;
+    public static final long DELTA_X = 1L;
+    public static final int DELTA_T = 4;
     public static final int CHUNK_SIZE = 20;
 
     public static final int SERVER_TIMEOUT = 2;

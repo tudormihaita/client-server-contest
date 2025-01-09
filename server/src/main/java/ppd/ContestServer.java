@@ -32,6 +32,9 @@ public class ContestServer {
 
     protected static final Logger log = LogManager.getLogger(ContestServer.class);
 
+    private static double startTime = 0;
+    private static double endTime = 0;
+
     public static void main(String[] args) {
         var workerThreads = new ArrayList<Thread>();
         var writerThreads = new Thread[WRITERS];
@@ -57,6 +60,11 @@ public class ContestServer {
 
                 try {
                     final var clientSocket = serverSocket.accept();
+
+                    if (startTime == 0) {
+                        startTime = System.nanoTime();
+                    }
+
                     log.info("Client connected, starting reader to process request...");
                     var worker = new ContestWorker(
                             clientSocket, serverSocket, readerExecutor, rankingExecutor,
@@ -114,6 +122,9 @@ public class ContestServer {
             Thread.currentThread().interrupt();
         }
 
+        endTime = System.nanoTime();
+        var elapsedTime = (endTime - startTime) / 1e6;
+
         var participantRankingPath = SERVER_DATA_DIR + "/participant_ranking_parallel.txt";
         var countryRankingPath = SERVER_DATA_DIR + "/country_ranking_parallel.txt";
         outputParticipantRanking(rankingList.getParticipantRanking(), participantRankingPath);
@@ -128,7 +139,7 @@ public class ContestServer {
         } else {
             log.info("Ranking is valid.");
         }
-
+        log.info("Server finished processing all data in {} milliseconds.", elapsedTime);
     }
 
     public static void outputParticipantRanking(List<ParticipantScore> ranking, String outputPath) {

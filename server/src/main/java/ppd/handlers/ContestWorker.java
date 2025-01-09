@@ -45,6 +45,7 @@ public class ContestWorker extends Thread {
 
     private volatile List<CountryScore> cachedPartialRanking = null;
     private volatile long lastComputedTime = 0L;
+    private final Object cacheLock = new Object();
 
     public ContestWorker(Socket clientSocket,
                          ServerSocket socket,
@@ -148,30 +149,33 @@ public class ContestWorker extends Thread {
     private void processPartialCountryRanking(Request request, ObjectOutputStream out) {
         try {
             long currentTime = System.currentTimeMillis();
-            if (cachedPartialRanking != null && (currentTime - lastComputedTime) <= DELTA_T) {
-                log.info("Sending cached partial country ranking...");
-                var response = Response.builder()
-                        .type(ResponseType.SUCCESS)
-                        .countryRanking(cachedPartialRanking)
-                        .build();
+            synchronized (cacheLock) {
+                if (cachedPartialRanking != null && (currentTime - lastComputedTime) <= DELTA_T) {
+                    log.info("Sending cached partial country ranking...");
+                    var response = Response.builder()
+                            .type(ResponseType.SUCCESS)
+                            .countryRanking(cachedPartialRanking)
+                            .build();
 
-                out.writeObject(response);
-                out.flush();
-            } else {
+                    out.writeObject(response);
+                    out.flush();
+                } else {
 
-                log.info("Computing partial country ranking...");
-                Future<List<CountryScore>> rankingComputation = rankingExecutor.submit(rankingList::getCountryRanking);
-                var partialRanking = rankingComputation.get();
-                cachedPartialRanking = partialRanking;
-                lastComputedTime = currentTime;
+                    log.info("Computing partial country ranking...");
+                    Future<List<CountryScore>> rankingComputation = rankingExecutor.submit(rankingList::getCountryRanking);
+                    var partialRanking = rankingComputation.get();
+                    var response = Response.builder()
+                            .type(ResponseType.SUCCESS)
+                            .countryRanking(partialRanking)
+                            .build();
 
-                var response = Response.builder()
-                        .type(ResponseType.SUCCESS)
-                        .countryRanking(partialRanking)
-                        .build();
+                    out.writeObject(response);
+                    out.flush();
 
-                out.writeObject(response);
-                out.flush();
+                    cachedPartialRanking = partialRanking;
+                    lastComputedTime = currentTime;
+                    log.info("Partial ranking computed at time: {}", lastComputedTime);
+                }
             }
             signalCountrySubmissionsFinished(request);
             log.info("Partial country ranking sent to client: {}", request.getCountry());

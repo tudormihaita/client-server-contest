@@ -48,6 +48,9 @@ public class CountryHandler implements Runnable {
         var buffer = new ArrayList<ScoreSubmission>();
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
+        var startTime = System.nanoTime();
+        int taskIndex = 0;
+
         try {
             for (var fileName : fileNames) {
                 try (var scanner = new Scanner(new FileReader(fileName))) {
@@ -60,14 +63,14 @@ public class CountryHandler implements Runnable {
                         buffer.add(new ScoreSubmission(id, points));
                         if (buffer.size() == CHUNK_SIZE) {
                             var submissions = new ArrayList<>(buffer);
-                            sendScheduledRequest(scheduler, countryId, submissions);
+                            sendScheduledRequest(scheduler, countryId, submissions, taskIndex++);
                             buffer.clear();
                         }
                     }
 
                     if (!buffer.isEmpty()) {
                         var submissions = new ArrayList<>(buffer);
-                        sendScheduledRequest(scheduler, countryId, submissions);
+                        sendScheduledRequest(scheduler, countryId, submissions, taskIndex++);
                         buffer.clear();
                     }
                 } catch (IOException e) {
@@ -117,7 +120,10 @@ public class CountryHandler implements Runnable {
             log.error("Error receiving final ranking from server: {}", finalRankingResponse.getMessage());
         }
 
+        var endTime = System.nanoTime();
+        var elapsedTime = (endTime - startTime) / 1e6;
         log.info("Client {} finished.", countryName);
+        log.info("Client {} finished processing all data in {} milliseconds.", countryName, elapsedTime);
     }
 
     private void initializeFileNames(int countryId) {
@@ -154,7 +160,8 @@ public class CountryHandler implements Runnable {
         return response;
     }
 
-    private void sendScheduledRequest(ScheduledExecutorService scheduler, int countryId, List<ScoreSubmission> submissions) {
+    private void sendScheduledRequest(ScheduledExecutorService scheduler, int countryId, List<ScoreSubmission> submissions, int taskIndex) {
+        var delay = taskIndex * DELTA_X;
         scheduler.schedule(() -> {
             try {
                 var request = Request.builder()
@@ -169,6 +176,6 @@ public class CountryHandler implements Runnable {
             } catch (IOException | ClassNotFoundException e) {
                 log.error("Error sending request to server: {}", e.getMessage());
             }
-        }, DELTA_X, TimeUnit.SECONDS);
+        }, delay, TimeUnit.SECONDS);
     }
 }
